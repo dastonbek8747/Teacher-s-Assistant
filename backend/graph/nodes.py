@@ -177,5 +177,11 @@ async def main():
         await shutdown_browser()
 
 
+# from IPython.display import display, Image
+#
+# image_data = graph.get_graph().draw_mermaid_png()
+# png = display(Image(image_data))
+# with open("graph.png", "wb") as fh:
+#     fh.write(image_data)
 if __name__ == "__main__":
     asyncio.run(main())  # butun dasturda FAQAT BITTA asyncio.run

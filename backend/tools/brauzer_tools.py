@@ -52,6 +52,37 @@ from langchain_core.tools import tool
 
 
 # ============================================================
+# OUTPUT DIRECTORY
+# ============================================================
+
+# Barcha screenshot va yuklab olingan fayllar shu papkaga saqlanadi.
+# Papka loyiha ishga tushirilgan joriy katalogga nisbatan aniqlanadi:
+# ../creating_files/
+CREATING_FILES_DIR = (Path.cwd() / "../creating_files").resolve()
+CREATING_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _output_path(path: str | Path) -> Path:
+    """
+    Berilgan yo'lni ../creating_files/ ichiga joylashtiradi.
+    Absolute path berilsa ham fayl creating_files ichida saqlanadi.
+    Path traversal (../../...) bloklanadi.
+    """
+    raw_path = Path(path).expanduser()
+
+    if raw_path.is_absolute():
+        raw_path = Path(raw_path.name)
+
+    target = (CREATING_FILES_DIR / raw_path).resolve()
+
+    if not target.is_relative_to(CREATING_FILES_DIR):
+        raise ValueError("Fayl creating_files papkasidan tashqariga saqlanishi mumkin emas.")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+# ============================================================
 # CONFIG
 # ============================================================
 
@@ -680,8 +711,7 @@ async def take_screenshot(
 
         page = await browser_manager.get_page()
 
-        file_path = Path(path).expanduser()
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path = _output_path(path)
 
         await page.screenshot(path=str(file_path), full_page=full_page)
 
@@ -1341,7 +1371,7 @@ async def download_file(
 
         page = await browser_manager.get_page()
 
-        folder = Path(save_path).expanduser()
+        folder = _output_path(save_path)
         folder.mkdir(parents=True, exist_ok=True)
 
         async with page.expect_download(timeout=60000) as download_info:
@@ -1528,6 +1558,314 @@ async def get_visible_text_summary(max_chars: int = 8000) -> str:
         return failure("get_visible_text_summary", e)
 
 
+
+# ============================================================
+# 38. TAKE ELEMENT SCREENSHOT
+# ============================================================
+
+@tool
+async def take_element_screenshot(
+        selector: str,
+        path: str = "screenshots/element.png"
+) -> str:
+    """Faqat tanlangan HTML elementdan screenshot oladi."""
+    try:
+        page = await browser_manager.get_page()
+        element = page.locator(selector).first
+        await element.wait_for(state="visible", timeout=15000)
+        file_path = _output_path(path)
+        await element.screenshot(path=str(file_path))
+        return success(
+            "Element screenshot saqlandi.",
+            path=str(file_path),
+            selector=selector,
+            url=page.url
+        )
+    except Exception as e:
+        return failure("take_element_screenshot", e)
+
+
+# ============================================================
+# 39. SAVE PAGE AS PDF
+# ============================================================
+
+@tool
+async def save_page_as_pdf(
+        path: str = "pdf/page.pdf",
+        print_background: bool = True,
+        landscape: bool = False
+) -> str:
+    """Joriy sahifani PDF formatida creating_files ichiga saqlaydi."""
+    try:
+        page = await browser_manager.get_page()
+        file_path = _output_path(path)
+        await page.pdf(
+            path=str(file_path),
+            print_background=print_background,
+            landscape=landscape,
+            prefer_css_page_size=True
+        )
+        return success("Sahifa PDF sifatida saqlandi.", path=str(file_path), url=page.url)
+    except Exception as e:
+        return failure("save_page_as_pdf", e)
+
+
+# ============================================================
+# 40. EXTRACT HTML TABLES
+# ============================================================
+
+@tool
+async def get_page_tables(max_tables: int = 20, max_rows: int = 100) -> str:
+    """Sahifadagi HTML jadvallarni sarlavha va qatorlari bilan ajratib oladi."""
+    try:
+        page = await browser_manager.get_page()
+        tables = await page.locator("table").evaluate_all(
+            """(els) => els.map((table, tableIndex) => ({
+                tableIndex,
+                caption: table.caption?.innerText?.trim() || null,
+                headers: Array.from(table.querySelectorAll("thead th"))
+                    .map(x => x.innerText.trim()),
+                rows: Array.from(table.querySelectorAll("tr")).slice(0, 100)
+                    .map(row => Array.from(row.querySelectorAll("th, td"))
+                        .map(cell => cell.innerText.trim()))
+            }))"""
+        )
+        tables = tables[:max(0, max_tables)]
+        for table in tables:
+            table["rows"] = table["rows"][:max(0, max_rows)]
+        return success("Sahifa jadvallari olindi.", url=page.url, tables=tables, total=len(tables))
+    except Exception as e:
+        return failure("get_page_tables", e)
+
+
+# ============================================================
+# 41. EXTRACT PAGE IMAGES
+# ============================================================
+
+@tool
+async def get_page_images(limit: int = 100) -> str:
+    """Sahifadagi rasm manzillari, alt matni va o'lchamlarini oladi."""
+    try:
+        page = await browser_manager.get_page()
+        images = await page.locator("img").evaluate_all(
+            """els => els.map((img, index) => ({
+                index,
+                src: img.currentSrc || img.src || null,
+                alt: img.alt || null,
+                width: img.naturalWidth || img.width || null,
+                height: img.naturalHeight || img.height || null,
+                visible: !!(img.offsetWidth || img.offsetHeight)
+            }))"""
+        )
+        return success("Rasmlar ro'yxati olindi.", url=page.url, images=images[:max(0, limit)], total=len(images))
+    except Exception as e:
+        return failure("get_page_images", e)
+
+
+# ============================================================
+# 42. EXTRACT PAGE FORMS
+# ============================================================
+
+@tool
+async def get_page_forms(limit: int = 50) -> str:
+    """Sahifadagi formalar va ularning maydonlarini tahlil qiladi."""
+    try:
+        page = await browser_manager.get_page()
+        forms = await page.locator("form").evaluate_all(
+            """forms => forms.map((form, index) => ({
+                index,
+                action: form.action || null,
+                method: (form.method || "get").toUpperCase(),
+                fields: Array.from(form.querySelectorAll("input, textarea, select, button"))
+                    .map(el => ({
+                        tag: el.tagName.toLowerCase(),
+                        type: el.type || null,
+                        name: el.name || null,
+                        id: el.id || null,
+                        placeholder: el.placeholder || null,
+                        required: !!el.required,
+                        disabled: !!el.disabled
+                    }))
+            }))"""
+        )
+        return success("Formalar olindi.", url=page.url, forms=forms[:max(0, limit)], total=len(forms))
+    except Exception as e:
+        return failure("get_page_forms", e)
+
+
+# ============================================================
+# 43. FIND ELEMENTS
+# ============================================================
+
+@tool
+async def find_elements(
+        selector: str,
+        limit: int = 50
+) -> str:
+    """CSS selector bo'yicha elementlarni topadi va qisqa ma'lumot beradi."""
+    try:
+        page = await browser_manager.get_page()
+        locator = page.locator(selector)
+        total = await locator.count()
+        elements = await locator.evaluate_all(
+            """els => els.slice(0, 200).map((el, index) => ({
+                index,
+                tag: el.tagName.toLowerCase(),
+                text: (el.innerText || el.textContent || "").trim().slice(0, 500),
+                id: el.id || null,
+                className: typeof el.className === "string" ? el.className : null,
+                href: el.href || null,
+                visible: !!(el.offsetWidth || el.offsetHeight),
+                disabled: !!el.disabled
+            }))"""
+        )
+        return success(
+            "Elementlar qidirildi.",
+            selector=selector,
+            elements=elements[:max(0, limit)],
+            total=total
+        )
+    except Exception as e:
+        return failure("find_elements", e)
+
+
+# ============================================================
+# 44. CLEAR INPUT
+# ============================================================
+
+@tool
+async def clear_input(selector: str) -> str:
+    """Input yoki textarea ichidagi matnni tozalaydi."""
+    try:
+        page = await browser_manager.get_page()
+        await page.locator(selector).first.clear(timeout=15000)
+        return success("Input tozalandi.", selector=selector)
+    except Exception as e:
+        return failure("clear_input", e)
+
+
+# ============================================================
+# 45. PRESS PAGE KEY
+# ============================================================
+
+@tool
+async def press_page_key(key: str) -> str:
+    """Klaviatura tugmasini joriy sahifada bosadi. Masalan: Escape, Enter, Control+L."""
+    try:
+        page = await browser_manager.get_page()
+        await page.keyboard.press(key)
+        return success("Klaviatura tugmasi bosildi.", key=key, url=page.url)
+    except Exception as e:
+        return failure("press_page_key", e)
+
+
+# ============================================================
+# 46. GET PAGE PERFORMANCE
+# ============================================================
+
+@tool
+async def get_page_performance() -> str:
+    """Sahifa yuklanish va resurslar bo'yicha Performance API ma'lumotlarini oladi."""
+    try:
+        page = await browser_manager.get_page()
+        metrics = await page.evaluate(
+            """() => {
+                const nav = performance.getEntriesByType("navigation")[0];
+                const resources = performance.getEntriesByType("resource");
+                return {
+                    navigation: nav ? {
+                        domContentLoaded: nav.domContentLoadedEventEnd,
+                        loadEvent: nav.loadEventEnd,
+                        responseTime: nav.responseEnd - nav.requestStart,
+                        totalDuration: nav.duration
+                    } : null,
+                    resourceCount: resources.length,
+                    transferSize: resources.reduce((sum, r) => sum + (r.transferSize || 0), 0),
+                    resourceTypes: resources.reduce((acc, r) => {
+                        const type = (r.initiatorType || "other");
+                        acc[type] = (acc[type] || 0) + 1;
+                        return acc;
+                    }, {})
+                };
+            }"""
+        )
+        return success("Performance ma'lumotlari olindi.", url=page.url, metrics=metrics)
+    except Exception as e:
+        return failure("get_page_performance", e)
+
+
+# ============================================================
+# 47. GET PAGE LINKS BY TEXT
+# ============================================================
+
+@tool
+async def get_links_by_text(
+        query: str,
+        limit: int = 50,
+        case_sensitive: bool = False
+) -> str:
+    """Havolalarni matni bo'yicha qidiradi."""
+    try:
+        page = await browser_manager.get_page()
+        links = await page.locator("a").evaluate_all(
+            """els => els.map(a => ({
+                text: (a.innerText || a.getAttribute("aria-label") || "").trim(),
+                href: a.href || null,
+                title: a.title || null
+            })).filter(a => a.href)"""
+        )
+        needle = query if case_sensitive else query.casefold()
+        matched = [
+            item for item in links
+            if needle in (item["text"] if case_sensitive else item["text"].casefold())
+        ]
+        return success(
+            "Mos havolalar topildi.",
+            query=query,
+            links=matched[:max(0, limit)],
+            total=len(matched)
+        )
+    except Exception as e:
+        return failure("get_links_by_text", e)
+
+
+# ============================================================
+# 48. DOWNLOAD URL DIRECTLY
+# ============================================================
+
+@tool
+async def download_url(
+        url: str,
+        filename: str = ""
+) -> str:
+    """URL manzilidagi faylni brauzer sessiyasi orqali creating_files ichiga yuklaydi."""
+    try:
+        url = validate_url(url)
+        context = await browser_manager.get_context()
+        response = await context.request.get(url, timeout=60000)
+        if not response.ok:
+            raise RuntimeError(f"Yuklab olish muvaffaqiyatsiz. HTTP status: {response.status}")
+
+        suggested = filename.strip() or Path(urlparse(url).path).name or "downloaded_file"
+        safe_name = safe_filename(suggested)
+        file_path = _output_path(safe_name)
+        body = await response.body()
+        file_path.write_bytes(body)
+        browser_manager.downloaded_files.append(str(file_path))
+
+        return success(
+            "URL orqali fayl yuklab olindi.",
+            url=url,
+            path=str(file_path),
+            filename=safe_name,
+            size_bytes=len(body),
+            status=response.status
+        )
+    except Exception as e:
+        return failure("download_url", e)
+
+
+
 # ============================================================
 # ALL BROWSER TOOLS
 # ============================================================
@@ -1581,5 +1919,18 @@ BROWSER_TOOLS = [
     search_text_on_page,
     get_page_metadata,
     get_visible_text_summary,
+
+    # Qo'shimcha 10 ta professional browser tool
+    take_element_screenshot,
+    save_page_as_pdf,
+    get_page_tables,
+    get_page_images,
+    get_page_forms,
+    find_elements,
+    clear_input,
+    press_page_key,
+    get_page_performance,
+    get_links_by_text,
+    download_url,
 
 ]
