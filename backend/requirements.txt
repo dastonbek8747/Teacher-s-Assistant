@@ -1,37 +1,67 @@
+# ---------------------------------------------------------------------------
+# Web / API
+# ---------------------------------------------------------------------------
+fastapi[standard]
+uvicorn[standard]
+python-multipart
+email-validator
+dark-swag
+pydantic
+python-dotenv
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+pyjwt
+argon2-cffi
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+sqlalchemy
+psycopg2-binary
+
+# ---------------------------------------------------------------------------
+# LangChain / LangGraph (agents)
+# ---------------------------------------------------------------------------
 langchain
-langchain-google-genai
 langchain-core
+langchain-community
+langchain-google-genai
 langchain-qdrant
 langchain-huggingface
-pypdf
 langchain-unstructured
+langchain-tavily
+langchain-google-calendar-tools
+langchain-openrouter
+langchain-ollama
+langchain-groq
+langchain-nvidia-ai-endpoints
+langchain-deepseek
+langgraph
+langgraph-checkpoint
+langgraph-checkpoint-postgres
+
+# ---------------------------------------------------------------------------
+# Documents / parsing
+# ---------------------------------------------------------------------------
+pypdf
 unstructured
+
+# ---------------------------------------------------------------------------
+# Search / ML
+# ---------------------------------------------------------------------------
+sentence-transformers
+ddgs
+pandas
+
+# ---------------------------------------------------------------------------
+# Vision / browser automation
+# ---------------------------------------------------------------------------
 face-recognition
 opencv-python
 cvzone
 ultralytics
 mediapipe
-sentence-transformers
-ddgs
-langchain-tavily
-langchain-google-calendar-tools
-langchain-community
-langchain-openrouter
-langchain-ollama
-langchain-groq
-langchain-nvidia-ai-endpoints
-langgraph
-langchain-deepseek
-langgraph-checkpoint
-langgraph-checkpoint-postgres
-python-dotenv
+
 requests
-pyjwt
-argon2-cffi
-psycopg2-binary
-pydantic
-sqlalchemy
-fastapi[standart]
-dark-swag
-langchain-qdrant
-pandas

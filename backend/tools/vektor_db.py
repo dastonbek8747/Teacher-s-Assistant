@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.documents import Document
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
@@ -13,7 +15,7 @@ from langchain_community.document_loaders import (
 from langchain.tools import tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-QDRANT_URL = "http://localhost:6333"
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 
 EMBEDDING_MODEL = "BAAI/bge-m3"
 
